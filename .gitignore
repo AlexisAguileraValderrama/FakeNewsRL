@@ -12,6 +12,11 @@ lab/
 .gitignore
 api.txt
 
+models/
+chunk*
+test*
+train*
+
 # Distribution / packaging
 .Python
 build/

@@ -121,7 +121,7 @@ class WebScrapper:
       soup = BeautifulSoup(innerHtml, "html.parser")
       html_text = soup.get_text()
       html_text = re.sub('(?<=\n)\s+\n', '', html_text)
-      html_text = re.sub('\n', '.', html_text)
+      ##html_text = re.sub('\n', '.', html_text)
       html_text = re.sub('\s{2,}', '.', html_text)
       html_text = re.sub('\[\d+]', '', html_text)
       self.data = re.sub('\|+|\/+|-+', '\n', html_text)

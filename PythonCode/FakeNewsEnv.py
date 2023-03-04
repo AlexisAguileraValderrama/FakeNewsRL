@@ -1,10 +1,7 @@
-from cgitb import reset
-
 import gym
 from gym import spaces
 
 import numpy as np
-import pandas as pd
 
 import spacy
 from scipy import stats
@@ -14,8 +11,9 @@ import os
 from LocalDataManager import LocalDataManager
 from WebDataManager import WebDataManager
 
-from WebScrapper import WebScrapper
 from ArgumentList import ArgumentList
+
+import pickle
 
 #La clase FakeNewsEnv es una clase que implementa un gym environment
 #Su objetivo es definir 
@@ -24,7 +22,7 @@ class FakeNewsEnv(gym.Env):
   """Custom Environment that follows gym interface"""
   metadata = {'render.modes': ['human']}
 
-  def __init__(self,flags, train_mode = False, model_name = ''):
+  def __init__(self,flags, train_mode = False, model_name = '', local_data_path = ''):
     super(FakeNewsEnv, self).__init__()
     # Define action and observation space
     # They must be gym.spaces objects
@@ -34,12 +32,10 @@ class FakeNewsEnv(gym.Env):
     self.flags = flags
     self.model_name = model_name
 
-    #Crear carpetas de logs escritos por el programador
-    self.logcustom = "logscustom"
-    if not os.path.exists(self.logcustom):
-      os.makedirs(self.logcustom)
-    
     self.log = ''
+
+    self.outcome = {}
+    self.outcome_log = []
 
     #Actions
     #El agente tiene 4 acciones:
@@ -63,7 +59,7 @@ class FakeNewsEnv(gym.Env):
 
     #Creacion del dirver para webscrapping
     if train_mode:
-      self.dataManager = LocalDataManager(localdata_path='/home/serapf/Desktop/github/FakeNewsRL/chunk_0-600')
+      self.dataManager = LocalDataManager(localdata_path=local_data_path)
     else:
       self.dataManager = WebDataManager(r"/home/serapf/Desktop/FakeNewsRL/PythonCode/data/DataFakeNews.csv")
 
@@ -91,11 +87,7 @@ class FakeNewsEnv(gym.Env):
     
     self.counter_good = 0
     self.counter_wrong = 0
-  
-  def WriteCurrentLog(self,logname):
-    f = open(f'{self.logcustom}/{logname}', "a")
-    f.write(self.log)
-    f.close()
+    self.draws = 0
   
   def sigmodialFunction(self,value, factor, estrecho, desx, desy):
     return factor/(1+pow(e+estrecho,-(value-desx))) + desy
@@ -230,25 +222,28 @@ class FakeNewsEnv(gym.Env):
         #Difference in list reward
         reward_factor = self.sigmodialFunction(diff,3.4,-0.5,4.4,0)
 
-        if not status:
+        if isFinished:
 
           if decision == -1:
             reward = 0 + reward
-          elif self.label == decision:
-            self.counter_good = self.counter_good + 1
-            reward = reward_factor + reward
+            self.draws = self.draws + 1
           else:
-            self.counter_wrong = self.counter_wrong + 1
-            reward = -reward_factor + reward
+            if self.label == decision:
+              self.counter_good = self.counter_good + 1
+              reward = reward_factor + reward
+            else:
+              self.counter_wrong = self.counter_wrong + 1
+              reward = -reward_factor + reward
         
         else:
           reward_factor = 0.05*reward_factor
           if decision == -1:
             reward = 0 + reward
-          elif self.label == decision:
-            reward =  reward_factor+ reward
           else:
-            reward = -reward_factor + reward
+            if self.label == decision:
+              reward =  reward_factor+ reward
+            else:
+              reward = -reward_factor + reward
 
       #Reward de pasos
       if self.flags[3] == '1':
@@ -269,9 +264,22 @@ class FakeNewsEnv(gym.Env):
 
     observation = self.BuildObservation()
 
-    info = {}
-
     self.total_reward = self.total_reward + reward
+
+    if isFinished:
+      self.outcome = {'title':self.title,
+                      'agree_list':self.argumentLists.getAgreeList(),
+                      'disagree_list':self.argumentLists.getDisagreeList(),
+                      'label':self.label,
+                      'outcome':self.argumentLists.GetDecision(),
+                      'certantiy':reward_factor,
+                      'draws': self.draws,
+                      'total_reward':self.total_reward,
+                      'Good' : self.counter_good,
+                      'Wrong' : self.counter_wrong,
+                      'Draws' : self.draws
+                      }
+      self.outcome_log.append(self.outcome)
 
     self.log = f'-------------------------------------------------- \n' + \
           f'model_name: {self.model_name} \n' + \
@@ -280,6 +288,7 @@ class FakeNewsEnv(gym.Env):
           f'Action: {action} \n' + \
           f'Good: {self.counter_good} \n' + \
           f'Wrong: {self.counter_wrong} \n' + \
+          f'Draws: {self.draws} \n' \
           f'rew_simility: {rew_simility} \n' + \
           f'rew_len: {rew_len} \n' + \
           f'reward_factor: {reward_factor} \n' + \
@@ -294,11 +303,14 @@ class FakeNewsEnv(gym.Env):
           f'{self.argumentLists.getDisagreeList()} \n'
 
     print(self.log)
+    info = {}
 
     return observation, reward, isFinished, info
 
 
   def reset(self):
+
+    self.outcome = {}
 
     self.last_step_three = sum(self.action_counter)
 
@@ -321,7 +333,7 @@ class FakeNewsEnv(gym.Env):
         elif status == 1:
           break
 
-      title, self.label, text = self.dataManager.GetLoadedData()
+      self.title, self.label, text = self.dataManager.GetLoadedData()
       sents = self.GetSents(text)
       if len(sents)>0:
         break        
@@ -331,12 +343,12 @@ class FakeNewsEnv(gym.Env):
     self.argumentLists.ChargeSents(sents)
 
     #Agregar el titulo al agree list
-    doc = self.nlp(title)
+    doc = self.nlp(self.title)
     self.argumentLists.append_agree_list(doc)
 
     #Texto de log
     log = f'\n\n ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ \n' + \
-          f'title: {title} Label: {self.label} \n' + \
+          f'title: {self.title} Label: {self.label} \n' + \
           ' ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ \n'
       
     print(log)
@@ -346,8 +358,21 @@ class FakeNewsEnv(gym.Env):
     observation = self.BuildObservation()
 
     return observation  # reward, done, info can't be included
- 
- 
+  
+
+  def cleanOutcomeLog(self):
+    self.outcome_log = []
+  
+  def saveOutcomelog(self, path_name_binary, path_name_plain):
+    with open(path_name_binary, "wb") as fp:   #Pickling
+      pickle.dump(self.outcome_log, fp)
+
+    with open(path_name_plain, 'w') as f:
+      for outcome in self.outcome_log:
+        f.write('\n\n---------------------------------------------------------------\n')
+        for key, value in outcome.items(): 
+            f.write('%s:%s\n' % (key, value))
+    
   def render(self, mode='human'):
     pass
  

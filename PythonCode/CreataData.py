@@ -13,6 +13,9 @@ chunkList = []
 #Carga de spacy para sent analysis y embeddings
 nlp = spacy.load("en_core_web_md")
 
+noticias = 0
+noticias_no = 0
+
 class thread_news(threading.Thread):
     
     def __init__(self, thread_name, thread_ID, dataFrameNews,begin, end, nlp):
@@ -35,6 +38,8 @@ class thread_news(threading.Thread):
     
     # helper function to execute the threads
     def run(self):
+        global noticias
+        global noticias_no
         print('Comenzo ',self.thread_ID)
 
         rows = self.dataFrameNews.iterrows()
@@ -65,17 +70,22 @@ class thread_news(threading.Thread):
             
                 dict = {'title':title,'label':label,'data':sents_list}
                 self.chunk.append(dict)
+                noticias = noticias + 1
+                print("Noticias recabadas",noticias)
+            else:
+                noticias_no = noticias_no + 1
+                print("Noticia fallidas",noticias_no)
         print('Termino ',self.thread_ID)
         self.webScrapper.Terminar()
 
 dataFrameNews = pd.read_csv(r"/home/serapf/Desktop/FakeNewsRL/PythonCode/data/DataFakeNews.csv")
 
-global_begin = 300
-global_end = 600
+global_begin = 1000
+global_end = 1500
 
 diff = global_end - global_begin
 
-number_thread = 10
+number_thread = 5
 chunk_size = int(diff/number_thread)
 thread_list = []
 

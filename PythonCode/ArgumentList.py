@@ -45,8 +45,8 @@ class ArgumentList:
     text = ""
 
     for token in sent:
-        if not token.is_stop:
-            text = text + token.text + " "
+        if token.lemma_.lower() not in self.nlp.Defaults.stop_words:
+            text = text + token.lemma_.lower() + " "
         
     no_stopword_doc = self.nlp(text)
 
